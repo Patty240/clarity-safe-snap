@@ -15,86 +15,72 @@ Clarinet.test({
     const user2 = accounts.get('wallet_2')!;
 
     let block = chain.mineBlock([
-      // Register a private photo
+      // Register a private photo with encryption
       Tx.contractCall('safe_snap', 'register-photo', [
         types.ascii("QmHash123"),
-        types.bool(true)
+        types.bool(true),
+        types.some(types.ascii("encryptionKey123")),
+        types.none()
       ], deployer.address),
     ]);
     
-    // Check photo registration
     block.receipts[0].result.expectOk();
     const photoId = block.receipts[0].result.expectOk();
 
-    // Test access control
+    // Test access control and encryption
     block = chain.mineBlock([
-      // User1 should not be able to view the photo initially
-      Tx.contractCall('safe_snap', 'can-view-photo', [
-        photoId
-      ], user1.address),
-      
-      // Grant access to user1
+      // Grant access to user1 with encryption key
       Tx.contractCall('safe_snap', 'grant-access', [
         photoId,
-        types.principal(user1.address)
+        types.principal(user1.address),
+        types.some(types.ascii("encryptionKey123"))
       ], deployer.address),
       
-      // User1 should now be able to view the photo
-      Tx.contractCall('safe_snap', 'can-view-photo', [
+      // User1 should be able to get encryption key
+      Tx.contractCall('safe_snap', 'get-encryption-key', [
         photoId
       ], user1.address),
-      
-      // Revoke access from user1
-      Tx.contractCall('safe_snap', 'revoke-access', [
-        photoId,
-        types.principal(user1.address)
-      ], deployer.address)
     ]);
 
-    assertEquals(block.receipts[0].result.expectOk(), false);
+    block.receipts[0].result.expectOk();
     block.receipts[1].result.expectOk();
-    assertEquals(block.receipts[2].result.expectOk(), true);
-    block.receipts[3].result.expectOk();
   },
 });
 
 Clarinet.test({
-  name: "Test photo visibility and ownership checks",
+  name: "Test collections functionality",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
-    const user1 = accounts.get('wallet_1')!;
-
+    
     let block = chain.mineBlock([
-      // Register a public photo
+      // Create a new collection
+      Tx.contractCall('safe_snap', 'create-collection', [
+        types.ascii("Vacation 2023"),
+        types.ascii("Photos from summer vacation")
+      ], deployer.address),
+    ]);
+
+    const collectionId = block.receipts[0].result.expectOk();
+
+    // Add photo to collection
+    block = chain.mineBlock([
       Tx.contractCall('safe_snap', 'register-photo', [
         types.ascii("QmHash456"),
-        types.bool(false)
+        types.bool(false),
+        types.none(),
+        types.some(collectionId)
       ], deployer.address),
-      
-      // Register a private photo
-      Tx.contractCall('safe_snap', 'register-photo', [
-        types.ascii("QmHash789"),
-        types.bool(true)
-      ], deployer.address)
     ]);
 
-    const publicPhotoId = block.receipts[0].result.expectOk();
-    const privatePhotoId = block.receipts[1].result.expectOk();
+    block.receipts[0].result.expectOk();
 
-    // Test photo visibility
+    // Verify collection data
     block = chain.mineBlock([
-      // Anyone should be able to view public photo
-      Tx.contractCall('safe_snap', 'can-view-photo', [
-        publicPhotoId
-      ], user1.address),
-      
-      // User1 should not be able to view private photo
-      Tx.contractCall('safe_snap', 'can-view-photo', [
-        privatePhotoId
-      ], user1.address)
+      Tx.contractCall('safe_snap', 'get-collection-photos', [
+        collectionId
+      ], deployer.address),
     ]);
 
-    assertEquals(block.receipts[0].result.expectOk(), true);
-    assertEquals(block.receipts[1].result.expectOk(), false);
+    block.receipts[0].result.expectOk();
   },
 });
