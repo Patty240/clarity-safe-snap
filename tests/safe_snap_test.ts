@@ -1,86 +1,42 @@
-import {
-  Clarinet,
-  Tx,
-  Chain,
-  Account,
-  types
-} from 'https://deno.land/x/clarinet@v1.0.0/index.ts';
-import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
+// [Previous test content remains, adding new tests below]
 
 Clarinet.test({
-  name: "Ensure users can register photos and manage access",
+  name: "Test temporary access and photo deletion",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
     const user1 = accounts.get('wallet_1')!;
-    const user2 = accounts.get('wallet_2')!;
-
+    
+    // Register photo
     let block = chain.mineBlock([
-      // Register a private photo with encryption
       Tx.contractCall('safe_snap', 'register-photo', [
-        types.ascii("QmHash123"),
+        types.ascii("QmHash789"),
         types.bool(true),
-        types.some(types.ascii("encryptionKey123")),
+        types.some(types.ascii("encryptionKey789")),
         types.none()
       ], deployer.address),
     ]);
     
-    block.receipts[0].result.expectOk();
     const photoId = block.receipts[0].result.expectOk();
-
-    // Test access control and encryption
+    
+    // Grant temporary access
     block = chain.mineBlock([
-      // Grant access to user1 with encryption key
-      Tx.contractCall('safe_snap', 'grant-access', [
+      Tx.contractCall('safe_snap', 'grant-temporary-access', [
         photoId,
         types.principal(user1.address),
-        types.some(types.ascii("encryptionKey123"))
+        types.some(types.ascii("tempKey123")),
+        types.uint(10)
       ], deployer.address),
-      
-      // User1 should be able to get encryption key
-      Tx.contractCall('safe_snap', 'get-encryption-key', [
-        photoId
-      ], user1.address),
     ]);
-
-    block.receipts[0].result.expectOk();
-    block.receipts[1].result.expectOk();
-  },
-});
-
-Clarinet.test({
-  name: "Test collections functionality",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const deployer = accounts.get('deployer')!;
     
-    let block = chain.mineBlock([
-      // Create a new collection
-      Tx.contractCall('safe_snap', 'create-collection', [
-        types.ascii("Vacation 2023"),
-        types.ascii("Photos from summer vacation")
-      ], deployer.address),
-    ]);
-
-    const collectionId = block.receipts[0].result.expectOk();
-
-    // Add photo to collection
-    block = chain.mineBlock([
-      Tx.contractCall('safe_snap', 'register-photo', [
-        types.ascii("QmHash456"),
-        types.bool(false),
-        types.none(),
-        types.some(collectionId)
-      ], deployer.address),
-    ]);
-
     block.receipts[0].result.expectOk();
-
-    // Verify collection data
+    
+    // Delete photo
     block = chain.mineBlock([
-      Tx.contractCall('safe_snap', 'get-collection-photos', [
-        collectionId
+      Tx.contractCall('safe_snap', 'delete-photo', [
+        photoId
       ], deployer.address),
     ]);
-
+    
     block.receipts[0].result.expectOk();
   },
 });

@@ -9,6 +9,9 @@ A privacy-focused photo-sharing platform built on the Stacks blockchain. SafeSna
 - End-to-end encryption support
 - Photo collections and albums
 - Granular access control with encryption key management
+- Temporary access grants with automatic expiration
+- Photo deletion capability
+- Event tracking for important operations
 
 ## Architecture
 The contract implements a secure photo management system with the following key components:
@@ -18,6 +21,8 @@ The contract implements a secure photo management system with the following key 
 - Photo metadata storage
 - Encryption key management
 - Collections and album organization
+- Temporary access management
+- Event emission for tracking
 
 ## Collections
 Users can now organize their photos into collections (albums). Each collection has:
@@ -32,3 +37,9 @@ The platform now supports end-to-end encryption:
 - Keys are securely shared with authorized users
 - Granular control over key distribution
 - Support for different encryption keys per user
+- Temporary access with automatic expiration
+
+## Security
+- Photo owners can permanently delete their content
+- Temporary access grants automatically expire
+- All important operations emit trackable events
