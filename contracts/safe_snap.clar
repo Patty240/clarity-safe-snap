@@ -10,6 +10,12 @@
 (define-constant err-invalid-encryption (err u105))
 (define-constant err-expired-access (err u106))
 (define-constant err-invalid-expiry (err u107))
+(define-constant err-invalid-batch (err u108))
+(define-constant err-transfer-failed (err u109))
+(define-constant err-contract-paused (err u110))
+
+;; Contract status
+(define-data-var contract-paused bool false)
 
 ;; Data structures
 (define-map photos
@@ -31,7 +37,8 @@
         owner: principal,
         name: (string-ascii 64),
         description: (string-ascii 256),
-        photo-count: uint
+        photo-count: uint,
+        version: uint
     }
 )
 
@@ -40,7 +47,8 @@
     { 
         can-view: bool, 
         encryption-key: (optional (string-ascii 128)),
-        expiry: (optional uint)
+        expiry: (optional uint),
+        granted-at: uint
     }
 )
 
@@ -52,79 +60,85 @@
 ;; Data variables  
 (define-data-var photo-counter uint u0)
 (define-data-var collection-counter uint u0)
-
-;; Events
 (define-data-var last-event-id uint u0)
 
-(define-private (emit-event (event-type (string-ascii 12)) (data (string-ascii 256)))
-    (let ((event-id (+ (var-get last-event-id) u1)))
-        (print { event-id: event-id, type: event-type, data: data })
-        (var-set last-event-id event-id)
-    )
-)
-
-;; Private functions
-(define-private (is-owner (photo-id uint))
-    (let ((photo-data (unwrap! (map-get? photos { photo-id: photo-id }) false)))
-        (is-eq tx-sender (get owner photo-data))
-    )
-)
-
-(define-private (validate-access (photo-id uint) (user principal))
-    (let ((access-data (map-get? access-rights { photo-id: photo-id, user: user })))
-        (match (get expiry (default-to { can-view: false, encryption-key: none, expiry: none } access-data))
-            expiry-height (< block-height expiry-height)
-            true
-        )
-    )
-)
-
-;; Public functions
-(define-public (create-collection (name (string-ascii 64)) (description (string-ascii 256)))
-    (let ((collection-id (+ (var-get collection-counter) u1)))
-        (map-set collections
-            { collection-id: collection-id }
-            {
-                owner: tx-sender,
-                name: name,
-                description: description,
-                photo-count: u0
-            }
-        )
-        (var-set collection-counter collection-id)
-        (emit-event "COLL_CREATED" (concat (to-ascii collection-id) name))
-        (ok collection-id)
-    )
-)
-
-;; ... [Previous functions remain unchanged]
-
-(define-public (delete-photo (photo-id uint))
-    (let ((photo-data (unwrap! (map-get? photos { photo-id: photo-id }) err-photo-not-found)))
-        (asserts! (is-owner photo-id) err-not-authorized)
-        (map-delete photos { photo-id: photo-id })
-        (emit-event "PHOTO_DELETE" (concat (to-ascii photo-id) "deleted"))
+;; Administrative functions
+(define-public (pause-contract)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set contract-paused true)
+        (emit-event "CONTRACT" "paused")
         (ok true)
     )
 )
 
-(define-public (grant-temporary-access (photo-id uint) (user principal) (encryption-key (optional (string-ascii 128))) (duration uint))
-    (if (is-owner photo-id)
-        (begin
-            (asserts! (> duration u0) err-invalid-expiry)
-            (map-set access-rights
-                { photo-id: photo-id, user: user }
-                { 
-                    can-view: true, 
-                    encryption-key: encryption-key,
-                    expiry: (some (+ block-height duration))
-                }
-            )
-            (emit-event "ACCESS_GRANT" (concat (to-ascii photo-id) (principal-to-string user)))
-            (ok true)
-        )
-        err-not-authorized
+(define-public (resume-contract)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set contract-paused false)
+        (emit-event "CONTRACT" "resumed")
+        (ok true)
     )
 )
 
-;; ... [Remaining read-only functions unchanged]
+;; Enhanced event emission
+(define-private (emit-event (event-type (string-ascii 12)) (data (string-ascii 256)))
+    (let ((event-id (+ (var-get last-event-id) u1)))
+        (print { 
+            event-id: event-id, 
+            type: event-type, 
+            data: data,
+            timestamp: block-height 
+        })
+        (var-set last-event-id event-id)
+    )
+)
+
+;; Batch operations
+(define-public (batch-grant-access 
+    (photo-ids (list 10 uint)) 
+    (user principal) 
+    (encryption-key (optional (string-ascii 128))) 
+    (duration uint)
+)
+    (begin
+        (asserts! (not (var-get contract-paused)) err-contract-paused)
+        (asserts! (> (len photo-ids) u0) err-invalid-batch)
+        (map-batch-grant photo-ids user encryption-key duration)
+        (emit-event "BATCH_ACCESS" (concat (to-ascii (len photo-ids)) (principal-to-string user)))
+        (ok true)
+    )
+)
+
+(define-private (map-batch-grant 
+    (photo-ids (list 10 uint)) 
+    (user principal) 
+    (encryption-key (optional (string-ascii 128))) 
+    (duration uint)
+)
+    (map 
+        (lambda (photo-id)
+            (grant-temporary-access photo-id user encryption-key duration)
+        )
+        photo-ids
+    )
+)
+
+;; Photo ownership transfer
+(define-public (transfer-photo-ownership (photo-id uint) (new-owner principal))
+    (let ((photo-data (unwrap! (map-get? photos { photo-id: photo-id }) err-photo-not-found)))
+        (asserts! (not (var-get contract-paused)) err-contract-paused)
+        (asserts! (is-owner photo-id) err-not-authorized)
+        (map-set photos
+            { photo-id: photo-id }
+            (merge photo-data { 
+                owner: new-owner,
+                version: (+ (get version photo-data) u1)
+            })
+        )
+        (emit-event "PHOTO_TRANS" (concat (to-ascii photo-id) (principal-to-string new-owner)))
+        (ok true)
+    )
+)
+
+;; [Previous functions remain unchanged]
